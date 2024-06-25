@@ -1,0 +1,10 @@
+# Language server files
+
+log.txt
+ruby-lsp
+
+# Extension files
+out
+node_modules
+client/server
+.vscode-test

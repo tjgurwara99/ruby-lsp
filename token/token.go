@@ -35,8 +35,8 @@ const (
 	LessThan
 	GreaterThan
 
+	Dot
 	Comma
-	SemiColon
 
 	LeftParen
 	RightParen
@@ -78,8 +78,8 @@ var tokens = [...]string{
 	Slash:         "/",
 	LessThan:      "<",
 	GreaterThan:   ">",
+	Dot:           ".",
 	Comma:         ",",
-	SemiColon:     ";",
 	LeftParen:     "(",
 	RightParen:    ")",
 	LeftBrace:     "{",

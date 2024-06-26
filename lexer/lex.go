@@ -48,6 +48,7 @@ func (l *lexer) emit(t token.TokenType) {
 		}
 		return
 	}
+
 	l.Tokens <- token.Token{
 		Type:    t,
 		Literal: l.input[l.start:l.pos],
@@ -133,8 +134,6 @@ func lexText(l *lexer) stateFn {
 		l.emit(l.doubleCharOperator('=', token.GreaterThan, token.GreaterThanEq))
 	case r == ',':
 		l.emit(token.Comma)
-	case r == ';':
-		l.emit(token.SemiColon)
 	case r == '(':
 		l.emit(token.LeftParen)
 	case r == ')':
@@ -147,7 +146,9 @@ func lexText(l *lexer) stateFn {
 		l.emit(l.doubleCharOperator('|', token.Or, token.Illegal))
 	case r == '&':
 		l.emit(l.doubleCharOperator('&', token.And, token.Illegal))
-	case isIdent(r):
+	case r == '.':
+		l.emit(token.Dot)
+	case isNumeralOrIdent(r):
 		l.backup()
 		return lexIdent
 	case r == eof:
@@ -159,7 +160,7 @@ func lexText(l *lexer) stateFn {
 	return lexText
 }
 
-func isIdent(r rune) bool {
+func isNumeralOrIdent(r rune) bool {
 	return r == '_' || unicode.IsDigit(r) || unicode.IsLetter(r)
 }
 
@@ -167,7 +168,7 @@ func lexIdent(l *lexer) stateFn {
 Loop:
 	for {
 		switch r := l.next(); {
-		case isIdent(r):
+		case isNumeralOrIdent(r):
 			// absorb
 		default:
 			l.backup()

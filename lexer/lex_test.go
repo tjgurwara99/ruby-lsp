@@ -8,7 +8,7 @@ import (
 )
 
 func TestNextOperatorsDelimiters(t *testing.T) {
-	input := `=+-(){},;!/*<> def true false if else
+	input := `=+-(){},.!/*<> def true false if else
 return
 end
 `
@@ -27,7 +27,7 @@ end
 		{token.LeftBrace, "{", 1, 5, 5},
 		{token.RightBrace, "}", 1, 6, 6},
 		{token.Comma, ",", 1, 7, 7},
-		{token.SemiColon, ";", 1, 8, 8},
+		{token.Dot, ".", 1, 8, 8},
 		{token.Bang, "!", 1, 9, 9},
 		{token.Slash, "/", 1, 10, 10},
 		{token.Asterisk, "*", 1, 11, 11},

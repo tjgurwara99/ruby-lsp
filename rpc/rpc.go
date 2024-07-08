@@ -1,63 +1,145 @@
 package rpc
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
+	"net/textproto"
 	"strconv"
+	"sync"
 )
 
-type rpcError string
-
-func (err rpcError) Error() string {
-	return string(err)
-}
-
-func EncodeMessage(msg any) string {
-	content, err := json.Marshal(msg)
+func Read(r *bufio.Reader) (*Request, error) {
+	header, err := textproto.NewReader(r).ReadMIMEHeader()
 	if err != nil {
-		// TODO(taj) handle gracefully
-		panic(err)
+		return nil, err
 	}
-	return fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(content), content)
-}
-
-const ErrInvalidMsg rpcError = "invalid message received from the client"
-
-func DecodeMessage(msg []byte, v any) error {
-	header, content, found := bytes.Cut(msg, []byte("\r\n\r\n"))
-	if !found {
-		return ErrInvalidMsg
-	}
-	contentLength, found := bytes.CutPrefix(header, []byte("Content-Length: "))
-	if !found {
-		return ErrInvalidMsg
-	}
-	clen, err := strconv.Atoi(string(contentLength))
+	contentLength, err := strconv.ParseInt(header.Get("Content-Length"), 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid content length in the message: %w", ErrInvalidMsg)
+		return nil, err
 	}
-	return json.Unmarshal(content[:clen], v)
-}
-
-type Message struct {
-	Method string `json:"method"`
-}
-
-func SplitFunc(data []byte, _ bool) (advance int, token []byte, err error) {
-	header, content, found := bytes.Cut(data, []byte{'\r', '\n', '\r', '\n'})
-	if !found {
-		return 0, nil, nil
-	}
-
-	contentLen := header[len("Content-Length: "):]
-	clen, err := strconv.Atoi(string(contentLen))
+	var req Request
+	err = json.NewDecoder(io.LimitReader(r, contentLength)).Decode(&req)
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
-	if len(content) < clen {
-		return 0, nil, nil
+	if !req.IsJSONRPC() {
+		return &req, ErrInvalidMsg
 	}
-	totalLen := len(header) + 4 + clen
-	return totalLen, data[:totalLen], nil
+	return &req, nil
+}
+
+type Mux struct {
+	reader               *bufio.Reader
+	writer               *bufio.Writer
+	notificationHandlers map[string]NotificationHandler
+	methodHandlers       map[string]MethodHandler
+	writeLock            *sync.Mutex
+}
+
+func NewMux(r io.Reader, w io.Writer) *Mux {
+	reader := bufio.NewReader(r)
+	writer := bufio.NewWriter(w)
+	return &Mux{
+		reader: reader,
+		writer: writer,
+	}
+}
+
+func (m *Mux) HandleMethod(name string, handler MethodHandler) {
+	m.methodHandlers[name] = handler
+}
+
+func (m *Mux) HandleNotification(name string, handler NotificationHandler) {
+	m.notificationHandlers[name] = handler
+}
+
+func Write(w *bufio.Writer, msg Message) (err error) {
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	headers := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body))
+	if _, err = w.WriteString(headers); err != nil {
+		return
+	}
+	if _, err = w.Write(body); err != nil {
+		return
+	}
+	return w.Flush()
+}
+
+func (m *Mux) write(msg Message) error {
+	m.writeLock.Lock()
+	defer m.writeLock.Unlock()
+	return Write(m.writer, msg)
+}
+
+func (m *Mux) Notify(method string, params any) error {
+	n := Notification{
+		Version: "2.0",
+		Method:  method,
+		Params:  params,
+	}
+	return m.write(&n)
+}
+
+func (m *Mux) Process() error {
+	req, err := Read(m.reader)
+	if err != nil {
+		return err
+	}
+	go func(req *Request) {
+		if req.IsNotification() {
+			if nh, ok := m.notificationHandlers[req.Method]; ok {
+				nErr := nh(req.Params)
+				if nErr != nil {
+					log.Printf("error handling notification: %s", nErr)
+				}
+			}
+			return
+		}
+		mh, ok := m.methodHandlers[req.Method]
+		if !ok {
+			wErr := m.write(NewResponseError(req.ID, ErrMethodNotFound, errors.New("method not found")))
+			if wErr != nil {
+				log.Printf("error writing to transport: %s", wErr)
+			}
+			return
+		}
+		result, err := mh(req.Params)
+		if err != nil {
+			wErr := m.write(NewResponseError(req.ID, ErrInternalError, err))
+			if wErr != nil {
+				log.Printf("error writing to transport: %s", wErr)
+			}
+			return
+		}
+		wErr := m.write(NewResponse(req.ID, result))
+		if wErr != nil {
+			log.Printf("error writing to transport: %s", wErr)
+		}
+	}(req)
+	return nil
+}
+
+func NewResponse(id *json.RawMessage, result any) Message {
+	return &Response{
+		Version: "2.0",
+		ID:      id,
+		Result:  result,
+	}
+}
+
+func NewResponseError(id *json.RawMessage, code ErrorCode, err error) Message {
+	return &Response{
+		Version: "2.0",
+		Error: &Error{
+			Code:    code,
+			Message: err.Error(),
+		},
+	}
 }

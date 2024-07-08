@@ -1,38 +1,23 @@
 package main
 
 import (
-	"bufio"
 	"log"
 	"os"
 
+	"github.com/tjgurwara99/ruby-lsp/handlers"
 	"github.com/tjgurwara99/ruby-lsp/rpc"
 )
 
 func main() {
+	mux := rpc.NewMux(os.Stdin, os.Stdout)
+	mux.HandleMethod("initialize", handlers.Initialize)
 	logger := getLogger("/Users/taj/personal/ruby-lsp/log.txt")
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Println("Recovered in f", r)
-		}
-	}()
-	logger.Println("started")
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Split(rpc.SplitFunc)
-	logger.Println("split set")
-	for scanner.Scan() {
-		logger.Println("inside scan")
-		msg := scanner.Text()
-		err := scanner.Err()
-		if err != nil {
+	for {
+		if err := mux.Process(); err != nil {
 			logger.Println(err)
+			return
 		}
-		handleMessage(msg, logger)
 	}
-	logger.Println("stopped")
-}
-
-func handleMessage(msg string, logger *log.Logger) {
-	logger.Printf("%s\n", msg)
 }
 
 func getLogger(filename string) *log.Logger {

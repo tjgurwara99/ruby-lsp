@@ -38,14 +38,19 @@ type Mux struct {
 	notificationHandlers map[string]NotificationHandler
 	methodHandlers       map[string]MethodHandler
 	writeLock            *sync.Mutex
+	logger               *log.Logger
 }
 
-func NewMux(r io.Reader, w io.Writer) *Mux {
+func NewMux(r io.Reader, w io.Writer, l *log.Logger) *Mux {
 	reader := bufio.NewReader(r)
 	writer := bufio.NewWriter(w)
 	return &Mux{
-		reader: reader,
-		writer: writer,
+		reader:               reader,
+		writer:               writer,
+		methodHandlers:       make(map[string]MethodHandler),
+		notificationHandlers: make(map[string]NotificationHandler),
+		logger:               l,
+		writeLock:            &sync.Mutex{},
 	}
 }
 
@@ -75,6 +80,7 @@ func Write(w *bufio.Writer, msg Message) (err error) {
 func (m *Mux) write(msg Message) error {
 	m.writeLock.Lock()
 	defer m.writeLock.Unlock()
+	m.logger.Printf("%+v", msg)
 	return Write(m.writer, msg)
 }
 
@@ -88,41 +94,48 @@ func (m *Mux) Notify(method string, params any) error {
 }
 
 func (m *Mux) Process() error {
+	m.logger.Println("Started reading")
 	req, err := Read(m.reader)
 	if err != nil {
+		m.logger.Println(err)
 		return err
 	}
-	go func(req *Request) {
-		if req.IsNotification() {
-			if nh, ok := m.notificationHandlers[req.Method]; ok {
-				nErr := nh(req.Params)
-				if nErr != nil {
-					log.Printf("error handling notification: %s", nErr)
-				}
+	m.logger.Printf("method: %s", req.Method)
+	m.logger.Printf("request: %s", req.Params)
+	if req.IsNotification() {
+		if nh, ok := m.notificationHandlers[req.Method]; ok {
+			nErr := nh(req.Params)
+			if nErr != nil {
+				m.logger.Printf("error handling notification: %s", nErr)
 			}
-			return
 		}
-		mh, ok := m.methodHandlers[req.Method]
-		if !ok {
-			wErr := m.write(NewResponseError(req.ID, ErrMethodNotFound, errors.New("method not found")))
-			if wErr != nil {
-				log.Printf("error writing to transport: %s", wErr)
-			}
-			return
-		}
-		result, err := mh(req.Params)
-		if err != nil {
-			wErr := m.write(NewResponseError(req.ID, ErrInternalError, err))
-			if wErr != nil {
-				log.Printf("error writing to transport: %s", wErr)
-			}
-			return
-		}
-		wErr := m.write(NewResponse(req.ID, result))
+		return nil
+	}
+	mh, ok := m.methodHandlers[req.Method]
+	if !ok {
+		m.logger.Println("method not found", req.Method)
+		wErr := m.write(NewResponseError(req.ID, ErrMethodNotFound, errors.New("method not found")))
 		if wErr != nil {
-			log.Printf("error writing to transport: %s", wErr)
+			m.logger.Printf("error writing to transport: %s", wErr)
 		}
-	}(req)
+		return nil
+	}
+	result, err := mh(req.Params)
+	m.logger.Printf("result created: %+v", result)
+	if err != nil {
+		m.logger.Printf("error happened: %s", err)
+		wErr := m.write(NewResponseError(req.ID, ErrInternalError, err))
+		if wErr != nil {
+			m.logger.Printf("error writing to transport: %s", wErr)
+		}
+		return nil
+	}
+	m.logger.Printf("result written: %+v", result)
+	wErr := m.write(NewResponse(req.ID, result))
+	m.logger.Printf("result written: %+v", result)
+	if wErr != nil {
+		m.logger.Printf("error writing to transport: %s", wErr)
+	}
 	return nil
 }
 

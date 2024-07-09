@@ -63,33 +63,3 @@ func (e *Error) Error() string {
 type NotificationHandler func(params json.RawMessage) error
 
 type MethodHandler func(params json.RawMessage) (result any, err error)
-
-type InitializeParams struct {
-	ClientInfo   *Info              `json:"client_info"`
-	Capabilities ClientCapabilities `json:"capabilities"`
-}
-
-type Info struct {
-	Name    string  `json:"name"`
-	Version *string `json:"version"`
-}
-
-type ClientCapabilities struct {
-}
-
-type ServerCapabilities struct {
-	TextDocumentSync TextDocumentSyncKind `json:"textDocumentSync"`
-}
-
-type TextDocumentSyncKind int
-
-const (
-	TextDocumentSyncKindNone TextDocumentSyncKind = iota
-	TextDocumentSyncKindFull
-	TextDocumentSyncKindIncremental
-)
-
-type InitializeResult struct {
-	Capabilities ServerCapabilities
-	ServerInfo   *Info
-}

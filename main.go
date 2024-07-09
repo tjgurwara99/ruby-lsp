@@ -9,9 +9,11 @@ import (
 )
 
 func main() {
-	mux := rpc.NewMux(os.Stdin, os.Stdout)
-	mux.HandleMethod("initialize", handlers.Initialize)
 	logger := getLogger("/Users/taj/personal/ruby-lsp/log.txt")
+	mux := rpc.NewMux(os.Stdin, os.Stdout, logger)
+	handler := handlers.New(logger)
+	mux.HandleMethod("initialize", handler.Initialize)
+	mux.HandleMethod("textDocument/completion", handler.TextCompletion)
 	for {
 		if err := mux.Process(); err != nil {
 			logger.Println(err)

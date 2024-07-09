@@ -3,21 +3,26 @@ package handlers
 import (
 	"encoding/json"
 
-	"github.com/tjgurwara99/ruby-lsp/rpc"
+	"github.com/sourcegraph/go-lsp"
 )
 
-func Initialize(params json.RawMessage) (any, error) {
-	var initializeParams rpc.InitializeParams
+var TextDocumentSyncKindFull = lsp.TDSKFull
+
+func (h *Handler) Initialize(params json.RawMessage) (any, error) {
+	var initializeParams lsp.InitializeParams
 	if err := json.Unmarshal(params, &initializeParams); err != nil {
 		return nil, err
 	}
-	result := rpc.InitializeResult{
-		Capabilities: rpc.ServerCapabilities{
-			TextDocumentSync: rpc.TextDocumentSyncKindFull,
-		},
-		ServerInfo: &rpc.Info{
-			Name: "ruby-lsp",
+	h.logger.Println("Initialised the lsp")
+	result := lsp.InitializeResult{
+		Capabilities: lsp.ServerCapabilities{
+			TextDocumentSync: &lsp.TextDocumentSyncOptionsOrKind{
+				Kind: &TextDocumentSyncKindFull,
+			},
+			CompletionProvider: &lsp.CompletionOptions{},
 		},
 	}
+	h.logger.Printf("%+v\n", initializeParams)
+	h.logger.Printf("%+v\n", result)
 	return result, nil
 }

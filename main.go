@@ -14,6 +14,7 @@ func main() {
 	handler := handlers.New(logger)
 	mux.HandleMethod("initialize", handler.Initialize)
 	mux.HandleMethod("textDocument/completion", handler.TextCompletion)
+	mux.HandleNotification("textDocument/didOpen", handler.DidOpenHandler)
 	for {
 		if err := mux.Process(); err != nil {
 			logger.Println(err)

@@ -1,9 +1,16 @@
 package handlers
 
-import "log"
+import (
+	"log"
+
+	sitter "github.com/smacker/go-tree-sitter"
+)
 
 type Handler struct {
-	logger *log.Logger
+	currentlyOpenFile []byte
+	logger            *log.Logger
+	language          *sitter.Language
+	parser            *sitter.Parser
 }
 
 func New(l *log.Logger) *Handler {

@@ -101,6 +101,7 @@ func (m *Mux) Process() error {
 		return err
 	}
 	m.logger.Printf("method: %s", req.Method)
+	m.logger.Printf("request: %s", req.Params)
 	if req.IsNotification() {
 		if nh, ok := m.notificationHandlers[req.Method]; ok {
 			nErr := nh(req.Params)

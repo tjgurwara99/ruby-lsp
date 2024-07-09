@@ -3,6 +3,8 @@ package handlers
 import (
 	"encoding/json"
 
+	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/sourcegraph/go-lsp"
 )
 
@@ -13,7 +15,9 @@ func (h *Handler) Initialize(params json.RawMessage) (any, error) {
 	if err := json.Unmarshal(params, &initializeParams); err != nil {
 		return nil, err
 	}
-	h.logger.Println("Initialised the lsp")
+	h.language = ruby.GetLanguage()
+	h.parser = sitter.NewParser()
+	h.parser.SetLanguage(h.language)
 	result := lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{
 			TextDocumentSync: &lsp.TextDocumentSyncOptionsOrKind{
@@ -22,7 +26,5 @@ func (h *Handler) Initialize(params json.RawMessage) (any, error) {
 			CompletionProvider: &lsp.CompletionOptions{},
 		},
 	}
-	h.logger.Printf("%+v\n", initializeParams)
-	h.logger.Printf("%+v\n", result)
 	return result, nil
 }

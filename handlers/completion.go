@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/sourcegraph/go-lsp"
+	lsp "github.com/sourcegraph/go-lsp"
 )
 
 func (h *Handler) TextCompletion(params json.RawMessage) (any, error) {
@@ -13,10 +13,8 @@ func (h *Handler) TextCompletion(params json.RawMessage) (any, error) {
 	if err := json.Unmarshal(params, &paramsData); err != nil {
 		return nil, err
 	}
-	tree, err := h.parser.ParseCtx(context.Background(), nil, h.currentlyOpenFile)
-	if err != nil {
-		return nil, err
-	}
+	tree := h.tree
+	h.logger.Println("POSITION", paramsData.Position)
 	allIdents, err := sitter.NewQuery([]byte(allIdentsQuery), h.language)
 	if err != nil {
 		return nil, err
@@ -37,7 +35,7 @@ func (h *Handler) TextCompletion(params json.RawMessage) (any, error) {
 		}
 
 	}
-	data, err := allIdentifiers(h.currentlyOpenFile, h.language, h.parser)
+	data, err := allIdentifiers(h.currentlyOpenFile, h.language, h.parser, paramsData)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +59,22 @@ const allMethodNamesQuery = `((method
 
 const allIdentsQuery = `((identifier) @ident)`
 
+const parentClassScopedQueryForIdentifiers = `((class
+    body: [
+    	(body_statement
+        	(method
+        		name: (identifier) @ident))
+    ]
+))`
+
+const parentModuleScopedQueryForIdents = `((module
+    body: [
+    	(body_statement
+        	(method
+        		name: (identifier) @ident))
+    ]
+))`
+
 // const methodQuery = `((
 // 	(method
 // 		name: [
@@ -83,7 +97,44 @@ func Map[T, V any](items []T, fn func(T) V) []V {
 	return out
 }
 
-func allIdentifiers(data []byte, lang *sitter.Language, parser *sitter.Parser) ([]lsp.CompletionItem, error) {
+func scopedSourceContent(src []byte, lang *sitter.Language, params lsp.CompletionParams) (string, error) {
+	tree, err := sitter.ParseCtx(context.Background(), []byte(src), lang)
+	if err != nil {
+		return "", err
+	}
+	selectedNode := tree.NamedDescendantForPointRange(sitter.Point{
+		Row:    uint32(params.Position.Line),
+		Column: uint32(params.Position.Character),
+	}, sitter.Point{
+		Row:    uint32(params.Position.Line),
+		Column: uint32(params.Position.Character),
+	})
+
+	var parent, currentNode *sitter.Node
+	currentNode = selectedNode
+	for {
+		parent = currentNode.Parent()
+		if parent.Type() == "method" || parent.Type() == "class" || parent.Type() == "module" || parent.Type() == "program" {
+			break
+		}
+		currentNode = parent
+	}
+	return parent.Content([]byte(src)), nil
+}
+
+// func allScopedIdentifiers(src []byte, lang *sitter.Language, parser *sitter.Parser, params lsp.CompletionParams) ([]lsp.CompletionItem, error) {
+// 	scopedSrc, err := scopedSourceContent(src, lang, params)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	allScopedIdents, err := executeQuery(allIdentsQuery, []byte(scopedSrc), lang, parser)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return nil, nil
+// }
+
+func allIdentifiers(data []byte, lang *sitter.Language, parser *sitter.Parser, params lsp.CompletionParams) ([]lsp.CompletionItem, error) {
 	classNames, err := executeQuery(allClassNamesQuery, data, lang, parser)
 	if err != nil {
 		return nil, err

@@ -1,14 +1,19 @@
 {
-	"name": "lsp-sample",
+	"name": "ruby-lsp-extension",
 	"description": "A language server example",
-	"author": "Microsoft Corporation",
+	"author": "Taj Singh",
 	"license": "MIT",
-	"version": "1.0.0",
+	"version": "0.0.1",
+	"activationEvents": [
+		"onCommand:ruby-lsp.restart",
+		"onCommand:ruby-lsp.stop",
+		"onCommand:ruby-lsp.start"
+	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/Microsoft/vscode-extension-samples"
+		"url": "https://github.com/tjgurwara99/ruby-lsp"
 	},
-	"publisher": "vscode-samples",
+	"publisher": "tjgurwara99",
 	"categories": [],
 	"keywords": [
 		"multi-root ready"
@@ -36,7 +41,7 @@
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
-		"lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
+		"lint": "eslint ./client/src --ext .ts,.tsx",
 		"postinstall": "cd client && npm install && cd ..",
 		"test": "sh ./scripts/e2e.sh"
 	},

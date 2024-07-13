@@ -6,7 +6,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/sourcegraph/go-lsp"
-	"github.com/tjgurwara99/ruby-lsp/code"
+	"github.com/tjgurwara99/ruby-lsp/code/index"
 )
 
 type DefinitionParams struct {
@@ -30,30 +30,34 @@ func (h *Handler) GoToDef(params json.RawMessage) (any, error) {
 		Row:    uint32(defParams.Position.Line),
 		Column: uint32(defParams.Position.Character),
 	}
-	selected := h.tree.RootNode().NamedDescendantForPointRange(point, point)
+	doc, ok := h.files[string(defParams.TextDocument.URI)]
+	if !ok {
+		return nil, errors.New("unopened file")
+	}
+	selected := doc.tree.RootNode().NamedDescendantForPointRange(point, point)
 	if selected == nil {
 		return nil, errors.New("failed")
 	}
-	var ranges []*code.Range
-	var ok bool
+	var ranges []*index.Range
 	switch selected.Type() {
 	case "constant":
-		ranges, ok = h.index.LookupConstant(selected.Content(h.currentlyOpenFile))
+		ranges, ok = h.index.LookupConstant(selected.Content(doc.content))
 		if !ok {
 			return nil, errors.New("no ranges found")
 		}
 	case "identifier":
 		h.logger.Println("identifier lookup started")
-		ranges, ok = h.index.LookupIdentifier(selected.Content(h.currentlyOpenFile))
+		ranges, ok = h.index.LookupIdentifier(selected.Content(doc.content))
 		h.logger.Println("identifier lookup finished")
 		if !ok {
 			h.logger.Println("identifier lookup errored")
 			return nil, errors.New("no ranges found")
 		}
 	default:
+		h.logger.Printf("unknown node type %s", selected.Type())
 		return nil, errors.New("unknown node")
 	}
-	return Map(ranges, func(r *code.Range) lsp.Location {
+	return Map(ranges, func(r *index.Range) lsp.Location {
 		return lsp.Location{
 			URI: lsp.DocumentURI(r.End.FileURI),
 			Range: lsp.Range{

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	lsp "github.com/sourcegraph/go-lsp"
 )
@@ -12,11 +13,13 @@ func (h *Handler) DidOpenHandler(params json.RawMessage) error {
 	if err := json.Unmarshal(params, &paramsData); err != nil {
 		return err
 	}
-	h.currentlyOpenFile = []byte(paramsData.TextDocument.Text)
-	var err error
-	h.tree, err = h.parser.ParseCtx(context.Background(), nil, h.currentlyOpenFile)
+	tree, err := h.parser.ParseCtx(context.Background(), nil, []byte(paramsData.TextDocument.Text))
 	if err != nil {
 		return err
+	}
+	h.files[string(paramsData.TextDocument.URI)] = &TextDocument{
+		content: []byte(paramsData.TextDocument.Text),
+		tree:    tree,
 	}
 	return nil
 }
@@ -26,9 +29,14 @@ func (h *Handler) DidChangeHandler(params json.RawMessage) error {
 	if err := json.Unmarshal(params, &paramsData); err != nil {
 		return err
 	}
-	h.currentlyOpenFile = []byte(paramsData.ContentChanges[0].Text)
+	doc, ok := h.files[string(paramsData.TextDocument.URI)]
+	if !ok {
+		return errors.New("file never opened")
+	}
+	doc.content = []byte(paramsData.ContentChanges[0].Text)
+
 	var err error
-	h.tree, err = h.parser.ParseCtx(context.Background(), h.tree, h.currentlyOpenFile)
+	doc.tree, err = h.parser.ParseCtx(context.Background(), doc.tree, doc.content)
 	if err != nil {
 		return err
 	}

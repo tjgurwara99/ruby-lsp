@@ -6,19 +6,19 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/ruby"
-	"github.com/tjgurwara99/ruby-lsp/code"
 )
 
 type Index struct {
 	Root    string
 	Indexed bool
-	Modules []*code.Module
-	Classes []*code.Class
-	Methods []*code.Method
+	Modules []*ModuleDecl
+	Classes []*ClassDecl
+	Methods []*MethodDecl
 }
 
 func New(path string) *Index {
@@ -57,53 +57,100 @@ func (i *Index) Start(logger *log.Logger) {
 }
 
 func (i *Index) indexFile(tree *sitter.Tree, src []byte, filepath string) error {
-	iterator := sitter.NewNamedIterator(tree.RootNode(), sitter.DFSMode)
-	iterator.ForEach(func(n *sitter.Node) error {
+	node := tree.RootNode()
+	for j := 0; j < int(node.ChildCount()); j++ {
+		n := node.Child(j)
 		switch n.Type() {
 		case "module":
-			return i.indexModule(n, src, nil, filepath)
+			module, err := i.indexModule(n, src, filepath)
+			if err != nil {
+				return err
+			}
+			i.Modules = append(i.Modules, module)
 		case "class":
-			return i.indexClass(n, src, nil, filepath)
+			class, err := i.indexClass(n, src, filepath)
+			if err != nil {
+				return err
+			}
+			i.Classes = append(i.Classes, class)
 		case "method":
-			return i.indexMethod(n, src, nil, filepath)
+			method, err := i.indexMethod(n, src, filepath)
+			if err != nil {
+				return err
+			}
+			i.Methods = append(i.Methods, method)
 		}
-		return nil
-	})
+	}
 	return nil
 }
 
-func (i *Index) indexModule(node *sitter.Node, src []byte, parent *sitter.Node, filepath string) error {
-	var module code.Module
+func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string) (*ModuleDecl, error) {
 	name := node.NamedChild(0).Content(src)
-	module.Name = name
-	module.Locations = append(module.Locations, rangeFromNode(node, filepath))
-	i.Modules = append(i.Modules, &module)
-	iterator := sitter.NewNamedIterator(node, sitter.DFSMode)
-	iterator.ForEach(func(n *sitter.Node) error {
+	idx := slices.IndexFunc(i.Modules, func(m *ModuleDecl) bool {
+		return m.Name == name
+	})
+	var module *ModuleDecl
+	if idx < 0 {
+		module = &ModuleDecl{
+			Name: node.NamedChild(0).Content(src),
+			r:    rangeFromNode(node, filepath),
+		}
+	} else {
+		module = i.Modules[idx]
+	}
+	var bodyNode *sitter.Node
+	for j := 0; j < int(node.NamedChildCount()); j++ {
+		n := node.NamedChild(j)
 		if node == n {
-			return nil
+			continue
+		}
+		if n.Type() == "body_statement" {
+			bodyNode = n
+		}
+	}
+	if bodyNode == nil {
+		return module, nil
+	}
+	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
+		n := bodyNode.NamedChild(j)
+		if n == bodyNode {
+			continue
 		}
 		switch n.Type() {
 		case "module":
-			return i.indexModule(n, src, parent, filepath)
+			submodule, err := i.indexModule(n, src, filepath)
+			if err != nil {
+				return nil, err
+			}
+			module.Modules = append(module.Modules, submodule)
+			i.Modules = append(i.Modules, submodule)
 		case "class":
-			return i.indexClass(n, src, parent, filepath)
+			class, err := i.indexClass(n, src, filepath)
+			if err != nil {
+				return nil, err
+			}
+			module.Classes = append(module.Classes, class)
+			i.Classes = append(i.Classes, class)
 		case "method":
-			return i.indexMethod(n, src, parent, filepath)
+			method, err := i.indexMethod(n, src, filepath)
+			if err != nil {
+				return nil, err
+			}
+			module.Methods = append(module.Methods, method)
+			i.Methods = append(i.Methods, method)
 		}
-		return nil
-	})
-	return nil
+	}
+	return module, nil
 }
 
-func rangeFromNode(node *sitter.Node, filepath string) code.Range {
-	return code.Range{
-		Start: code.Location{
+func rangeFromNode(node *sitter.Node, filepath string) *Range {
+	return &Range{
+		Start: &Location{
 			Line:      int(node.StartPoint().Row),
 			Character: int(node.StartPoint().Column),
 			FileURI:   filepath,
 		},
-		End: code.Location{
+		End: &Location{
 			Line:      int(node.EndPoint().Row),
 			Character: int(node.EndPoint().Column),
 			FileURI:   filepath,
@@ -111,54 +158,102 @@ func rangeFromNode(node *sitter.Node, filepath string) code.Range {
 	}
 }
 
-func (i *Index) indexClass(node *sitter.Node, src []byte, parent *sitter.Node, filepath string) error {
+func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string) (*ClassDecl, error) {
 	name := node.NamedChild(0).Content(src)
-	class := code.Class{
-		Name:  name,
-		Range: rangeFromNode(node, filepath),
+	class := ClassDecl{
+		Name: name,
+		r:    rangeFromNode(node, filepath),
 	}
-	i.Classes = append(i.Classes, &class)
-	return nil
+	var bodyNode *sitter.Node
+	for j := 0; j < int(node.NamedChildCount()); j++ {
+		n := node.NamedChild(j)
+		if node == n {
+			continue
+		}
+		if n.Type() == "body_statement" {
+			bodyNode = n
+		}
+	}
+	if bodyNode == nil {
+		return &class, nil
+	}
+	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
+		n := bodyNode.NamedChild(j)
+		if n == bodyNode {
+			continue
+		}
+		switch n.Type() {
+		case "module":
+			submodule, err := i.indexModule(n, src, filepath)
+			if err != nil {
+				return nil, err
+			}
+			class.Modules = append(class.Modules, submodule)
+			i.Modules = append(i.Modules, submodule)
+		case "class":
+			class, err := i.indexClass(n, src, filepath)
+			if err != nil {
+				return nil, err
+			}
+			class.Classes = append(class.Classes, class)
+			i.Classes = append(i.Classes, class)
+		case "method":
+			method, err := i.indexMethod(n, src, filepath)
+			if err != nil {
+				return nil, err
+			}
+			class.Methods = append(class.Methods, method)
+			i.Methods = append(i.Methods, method)
+		}
+	}
+	return &class, nil
 }
 
-func (i *Index) indexMethod(node *sitter.Node, src []byte, parent *sitter.Node, filepath string) error {
-	// var m code.Method
+func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string) (*MethodDecl, error) {
+	// var m Method
 	name := node.NamedChild(0).Content(src)
 	// there is a possiblity that these are not args but the first statement of the method
-	method := code.Method{
-		Name:  name,
-		Range: rangeFromNode(node, filepath),
+	n := node.NamedChild(1)
+	var args []string
+	if n != nil && n.Type() == "method_parameters" {
+		s := strings.TrimPrefix(n.Content(src), "(")
+		s = strings.TrimSuffix(s, ")")
+		args = strings.Split(s, ",")
 	}
-	i.Methods = append(i.Methods, &method)
-	return nil
+	method := MethodDecl{
+		Name: name,
+		r:    rangeFromNode(node, filepath),
+		Args: args,
+	}
+	return &method, nil
 }
 
-func (i *Index) LookupConstant(name string) ([]*code.Range, bool) {
+func (i *Index) LookupConstant(name string) ([]*Range, bool) {
 	if !i.Indexed {
 		return nil, false
 	}
-	var res []*code.Range
+	var res []*Range
 	for _, c := range i.Classes {
 		if c.Name == name {
-			res = append(res, &c.Range)
+			res = append(res, c.r)
 		}
 	}
 	for _, m := range i.Modules {
 		if m.Name == name {
-			res = append(res, &m.Locations[0])
+			res = append(res, m.r)
 		}
 	}
 	return res, true
 }
 
-func (i *Index) LookupIdentifier(name string) ([]*code.Range, bool) {
+func (i *Index) LookupIdentifier(name string) ([]*Range, bool) {
 	if !i.Indexed {
 		return nil, false
 	}
-	var res []*code.Range
+	var res []*Range
 	for _, m := range i.Methods {
 		if m.Name == name {
-			res = append(res, &m.Range)
+			res = append(res, m.r)
 		}
 	}
 	return res, true

@@ -13,37 +13,41 @@ func (h *Handler) TextCompletion(params json.RawMessage) (any, error) {
 	if err := json.Unmarshal(params, &paramsData); err != nil {
 		return nil, err
 	}
-	tree := h.tree
-	h.logger.Println("POSITION", paramsData.Position)
-	allIdents, err := sitter.NewQuery([]byte(allIdentsQuery), h.language)
-	if err != nil {
-		return nil, err
-	}
-	queryCursor := sitter.NewQueryCursor()
-	queryCursor.Exec(allIdents, tree.RootNode())
-	for {
-		m, ok := queryCursor.NextMatch()
-		if !ok {
-			h.logger.Println("Query match not found")
-			break
+	var result []lsp.CompletionItem
+	for _, doc := range h.files {
+		tree := doc.tree
+		h.logger.Println("POSITION", paramsData.Position)
+		allIdents, err := sitter.NewQuery([]byte(allIdentsQuery), h.language)
+		if err != nil {
+			return nil, err
 		}
-		h.logger.Println("match:", m)
+		queryCursor := sitter.NewQueryCursor()
+		queryCursor.Exec(allIdents, tree.RootNode())
+		for {
+			m, ok := queryCursor.NextMatch()
+			if !ok {
+				h.logger.Println("Query match not found")
+				break
+			}
+			h.logger.Println("match:", m)
 
-		m = queryCursor.FilterPredicates(m, h.currentlyOpenFile)
-		for _, c := range m.Captures {
-			h.logger.Println("content in the node:", c.Node.Content(h.currentlyOpenFile))
+			m = queryCursor.FilterPredicates(m, doc.content)
+			for _, c := range m.Captures {
+				h.logger.Println("content in the node:", c.Node.Content(doc.content))
+			}
+
 		}
-
+		data, err := allIdentifiers(doc.content, h.language, h.parser, paramsData)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, data...)
 	}
-	data, err := allIdentifiers(h.currentlyOpenFile, h.language, h.parser, paramsData)
-	if err != nil {
-		return nil, err
-	}
-	h.logger.Printf("All idents: %+v", data)
+	h.logger.Printf("All idents: %+v", result)
 	// find all possible things
 	return lsp.CompletionList{
 		IsIncomplete: false,
-		Items:        data,
+		Items:        result,
 	}, nil
 }
 
@@ -59,33 +63,6 @@ const allMethodNamesQuery = `((method
 
 const allIdentsQuery = `((identifier) @ident)`
 
-const parentClassScopedQueryForIdentifiers = `((class
-    body: [
-    	(body_statement
-        	(method
-        		name: (identifier) @ident))
-    ]
-))`
-
-const parentModuleScopedQueryForIdents = `((module
-    body: [
-    	(body_statement
-        	(method
-        		name: (identifier) @ident))
-    ]
-))`
-
-// const methodQuery = `((
-// 	(method
-// 		name: [
-// 			(identifier) @name
-// 		]
-// 		_ @params
-//         _ @body
-//      )
-// ) @method
-// (#eq? @name "some_integer"))`
-
 func Map[T, V any](items []T, fn func(T) V) []V {
 	if items == nil {
 		return nil
@@ -96,43 +73,6 @@ func Map[T, V any](items []T, fn func(T) V) []V {
 	}
 	return out
 }
-
-func scopedSourceContent(src []byte, lang *sitter.Language, params lsp.CompletionParams) (string, error) {
-	tree, err := sitter.ParseCtx(context.Background(), []byte(src), lang)
-	if err != nil {
-		return "", err
-	}
-	selectedNode := tree.NamedDescendantForPointRange(sitter.Point{
-		Row:    uint32(params.Position.Line),
-		Column: uint32(params.Position.Character),
-	}, sitter.Point{
-		Row:    uint32(params.Position.Line),
-		Column: uint32(params.Position.Character),
-	})
-
-	var parent, currentNode *sitter.Node
-	currentNode = selectedNode
-	for {
-		parent = currentNode.Parent()
-		if parent.Type() == "method" || parent.Type() == "class" || parent.Type() == "module" || parent.Type() == "program" {
-			break
-		}
-		currentNode = parent
-	}
-	return parent.Content([]byte(src)), nil
-}
-
-// func allScopedIdentifiers(src []byte, lang *sitter.Language, parser *sitter.Parser, params lsp.CompletionParams) ([]lsp.CompletionItem, error) {
-// 	scopedSrc, err := scopedSourceContent(src, lang, params)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	allScopedIdents, err := executeQuery(allIdentsQuery, []byte(scopedSrc), lang, parser)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return nil, nil
-// }
 
 func allIdentifiers(data []byte, lang *sitter.Language, parser *sitter.Parser, params lsp.CompletionParams) ([]lsp.CompletionItem, error) {
 	classNames, err := executeQuery(allClassNamesQuery, data, lang, parser)
@@ -182,9 +122,7 @@ func toSet[T comparable](data []T) map[T]struct{} {
 
 func join[T any](a []T, rest ...[]T) []T {
 	for _, d := range rest {
-		for _, v := range d {
-			a = append(a, v)
-		}
+		a = append(a, d...)
 	}
 	return a
 }

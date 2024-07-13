@@ -4,7 +4,7 @@ import (
 	"log"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/tjgurwara99/ruby-lsp/code/index"
+	"github.com/tjgurwara99/ruby-lsp/internal/code/analysis"
 )
 
 type Handler struct {
@@ -13,7 +13,7 @@ type Handler struct {
 	language          *sitter.Language
 	parser            *sitter.Parser
 	tree              *sitter.Tree
-	index             *index.Index
+	index             *analysis.Index
 }
 
 func New(l *log.Logger) *Handler {

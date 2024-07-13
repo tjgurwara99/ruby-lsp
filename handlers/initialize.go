@@ -6,7 +6,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/ruby"
 	lsp "github.com/sourcegraph/go-lsp"
-	"github.com/tjgurwara99/ruby-lsp/code/index"
+	"github.com/tjgurwara99/ruby-lsp/internal/code/analysis"
 )
 
 var TextDocumentSyncKindFull = lsp.TDSKFull
@@ -20,8 +20,8 @@ func (h *Handler) Initialize(params json.RawMessage) (any, error) {
 	h.parser = sitter.NewParser()
 	h.parser.SetLanguage(h.language)
 	h.logger.Printf("root path: %s\n", initializeParams.RootPath)
-	h.index = index.New(initializeParams.RootPath)
-	go h.index.Start(h.logger)
+	h.index = analysis.New(initializeParams.RootPath, h.logger)
+	go h.index.Start()
 	result := lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{
 			TextDocumentSync: &lsp.TextDocumentSyncOptionsOrKind{

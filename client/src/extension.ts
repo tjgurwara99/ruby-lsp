@@ -16,7 +16,7 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-  const command = "/Users/taj/personal/ruby-lsp/ruby-lsp";
+  const command = "ruby-lsp";
 
   // If the extension is launched in debug mode then the debug server options are used
   // Otherwise the run options are used

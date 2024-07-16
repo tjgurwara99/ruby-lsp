@@ -1,7 +1,7 @@
 # typed: true
 # frozen_string_literal: true
 
-class Foo::Bar
+class Foo::Baz
   attr_reader :value
 
   def initialize(value)

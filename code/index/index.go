@@ -278,7 +278,7 @@ func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string, scop
 	} else {
 		scope = scope + "." + name
 	}
-	symbol, symbolIndexed := i.lookupSymbol(scope, "module", rr)
+	symbol, symbolIndexed := i.lookupSymbol(scope, "method", rr)
 	if !symbolIndexed {
 		i.Symbols = append(i.Symbols, symbol)
 	}

@@ -8,5 +8,4 @@ import (
 func TestIndex(t *testing.T) {
 	i := New("./testdata")
 	i.Start(log.Default())
-	_ = i
 }

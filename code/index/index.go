@@ -13,9 +13,22 @@ import (
 	"github.com/smacker/go-tree-sitter/ruby"
 )
 
+type Attribute struct {
+	Ident string
+	Type  string
+}
+
+type Symbol struct {
+	Name       string
+	Type       string
+	Attributes []*Attribute
+	r          *Range
+}
+
 type Index struct {
 	Root    string
 	Indexed bool
+	Symbols []*Symbol
 	Modules []*ModuleDecl
 	Classes []*ClassDecl
 	Methods []*MethodDecl
@@ -62,19 +75,19 @@ func (i *Index) indexFile(tree *sitter.Tree, src []byte, filepath string) error 
 		n := node.Child(j)
 		switch n.Type() {
 		case "module":
-			module, err := i.indexModule(n, src, filepath)
+			module, err := i.indexModule(n, src, filepath, "")
 			if err != nil {
 				return err
 			}
 			i.Modules = append(i.Modules, module)
 		case "class":
-			class, err := i.indexClass(n, src, filepath)
+			class, err := i.indexClass(n, src, filepath, "")
 			if err != nil {
 				return err
 			}
 			i.Classes = append(i.Classes, class)
 		case "method":
-			method, err := i.indexMethod(n, src, filepath)
+			method, err := i.indexMethod(n, src, filepath, "")
 			if err != nil {
 				return err
 			}
@@ -84,11 +97,42 @@ func (i *Index) indexFile(tree *sitter.Tree, src []byte, filepath string) error 
 	return nil
 }
 
-func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string) (*ModuleDecl, error) {
+func (i *Index) lookupSymbol(scope string, t string, r *Range) (*Symbol, bool) {
+	for _, sym := range i.Symbols {
+		if sym.Name == scope && sym.Type == t {
+			return sym, true
+		}
+	}
+	return &Symbol{
+		Name: scope,
+		Type: t,
+		r:    r,
+	}, false
+}
+
+func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scope string) (*ModuleDecl, error) {
 	name := node.NamedChild(0).Content(src)
 	idx := slices.IndexFunc(i.Modules, func(m *ModuleDecl) bool {
 		return m.Name == name
 	})
+	if scope == "" {
+		scope = name
+	} else {
+		scope = scope + "::" + name
+	}
+	symbol, symbolIndexed := i.lookupSymbol(scope, "module", &Range{
+		Start: &Location{
+			Line:      int(node.StartPoint().Row),
+			Character: int(node.StartPoint().Column),
+		},
+		End: &Location{
+			Line:      int(node.EndPoint().Row),
+			Character: int(node.EndPoint().Column),
+		},
+	})
+	if !symbolIndexed {
+		i.Symbols = append(i.Symbols, symbol)
+	}
 	var module *ModuleDecl
 	if idx < 0 {
 		module = &ModuleDecl{
@@ -111,6 +155,7 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string) (*Mo
 	if bodyNode == nil {
 		return module, nil
 	}
+	var attributes []*Attribute
 	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
 		n := bodyNode.NamedChild(j)
 		if n == bodyNode {
@@ -118,28 +163,33 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string) (*Mo
 		}
 		switch n.Type() {
 		case "module":
-			submodule, err := i.indexModule(n, src, filepath)
+			submodule, err := i.indexModule(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
 			module.Modules = append(module.Modules, submodule)
 			i.Modules = append(i.Modules, submodule)
 		case "class":
-			class, err := i.indexClass(n, src, filepath)
+			class, err := i.indexClass(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
 			module.Classes = append(module.Classes, class)
 			i.Classes = append(i.Classes, class)
 		case "method":
-			method, err := i.indexMethod(n, src, filepath)
+			method, err := i.indexMethod(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
+			attributes = append(attributes, &Attribute{
+				Ident: method.Name,
+				Type:  "method",
+			})
 			module.Methods = append(module.Methods, method)
 			i.Methods = append(i.Methods, method)
 		}
 	}
+	symbol.Attributes = attributes
 	return module, nil
 }
 
@@ -158,11 +208,29 @@ func rangeFromNode(node *sitter.Node, filepath string) *Range {
 	}
 }
 
-func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string) (*ClassDecl, error) {
+func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string, scope string) (*ClassDecl, error) {
 	name := node.NamedChild(0).Content(src)
 	class := ClassDecl{
 		Name: name,
 		r:    rangeFromNode(node, filepath),
+	}
+	if scope == "" {
+		scope = name
+	} else {
+		scope = scope + "::" + name
+	}
+	symbol, symbolIndexed := i.lookupSymbol(scope, "module", &Range{
+		Start: &Location{
+			Line:      int(node.StartPoint().Row),
+			Character: int(node.StartPoint().Column),
+		},
+		End: &Location{
+			Line:      int(node.EndPoint().Row),
+			Character: int(node.EndPoint().Column),
+		},
+	})
+	if !symbolIndexed {
+		i.Symbols = append(i.Symbols, symbol)
 	}
 	var bodyNode *sitter.Node
 	for j := 0; j < int(node.NamedChildCount()); j++ {
@@ -177,6 +245,7 @@ func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string) (*Cla
 	if bodyNode == nil {
 		return &class, nil
 	}
+	var attributes []*Attribute
 	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
 		n := bodyNode.NamedChild(j)
 		if n == bodyNode {
@@ -184,32 +253,37 @@ func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string) (*Cla
 		}
 		switch n.Type() {
 		case "module":
-			submodule, err := i.indexModule(n, src, filepath)
+			submodule, err := i.indexModule(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
 			class.Modules = append(class.Modules, submodule)
 			i.Modules = append(i.Modules, submodule)
 		case "class":
-			class, err := i.indexClass(n, src, filepath)
+			class, err := i.indexClass(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
 			class.Classes = append(class.Classes, class)
 			i.Classes = append(i.Classes, class)
 		case "method":
-			method, err := i.indexMethod(n, src, filepath)
+			method, err := i.indexMethod(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
+			attributes = append(attributes, &Attribute{
+				Ident: method.Name,
+				Type:  "method",
+			})
 			class.Methods = append(class.Methods, method)
 			i.Methods = append(i.Methods, method)
 		}
 	}
+	symbol.Attributes = attributes
 	return &class, nil
 }
 
-func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string) (*MethodDecl, error) {
+func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string, scope string) (*MethodDecl, error) {
 	// var m Method
 	name := node.NamedChild(0).Content(src)
 	// there is a possiblity that these are not args but the first statement of the method

@@ -120,16 +120,8 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scop
 	} else {
 		scope = scope + "::" + name
 	}
-	symbol, symbolIndexed := i.lookupSymbol(scope, "module", &Range{
-		Start: &Location{
-			Line:      int(node.StartPoint().Row),
-			Character: int(node.StartPoint().Column),
-		},
-		End: &Location{
-			Line:      int(node.EndPoint().Row),
-			Character: int(node.EndPoint().Column),
-		},
-	})
+	rr := rangeFromNode(node, filepath)
+	symbol, symbolIndexed := i.lookupSymbol(scope, "module", rr)
 	if !symbolIndexed {
 		i.Symbols = append(i.Symbols, symbol)
 	}
@@ -137,7 +129,7 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scop
 	if idx < 0 {
 		module = &ModuleDecl{
 			Name: node.NamedChild(0).Content(src),
-			r:    rangeFromNode(node, filepath),
+			r:    rr,
 		}
 	} else {
 		module = i.Modules[idx]
@@ -210,25 +202,17 @@ func rangeFromNode(node *sitter.Node, filepath string) *Range {
 
 func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string, scope string) (*ClassDecl, error) {
 	name := node.NamedChild(0).Content(src)
+	rr := rangeFromNode(node, filepath)
 	class := ClassDecl{
 		Name: name,
-		r:    rangeFromNode(node, filepath),
+		r:    rr,
 	}
 	if scope == "" {
 		scope = name
 	} else {
 		scope = scope + "::" + name
 	}
-	symbol, symbolIndexed := i.lookupSymbol(scope, "module", &Range{
-		Start: &Location{
-			Line:      int(node.StartPoint().Row),
-			Character: int(node.StartPoint().Column),
-		},
-		End: &Location{
-			Line:      int(node.EndPoint().Row),
-			Character: int(node.EndPoint().Column),
-		},
-	})
+	symbol, symbolIndexed := i.lookupSymbol(scope, "module", rr)
 	if !symbolIndexed {
 		i.Symbols = append(i.Symbols, symbol)
 	}
@@ -286,8 +270,18 @@ func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string, scope
 func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string, scope string) (*MethodDecl, error) {
 	// var m Method
 	name := node.NamedChild(0).Content(src)
+	rr := rangeFromNode(node, filepath)
 	// there is a possiblity that these are not args but the first statement of the method
 	n := node.NamedChild(1)
+	if scope == "" {
+		scope = name
+	} else {
+		scope = scope + "." + name
+	}
+	symbol, symbolIndexed := i.lookupSymbol(scope, "module", rr)
+	if !symbolIndexed {
+		i.Symbols = append(i.Symbols, symbol)
+	}
 	var args []string
 	if n != nil && n.Type() == "method_parameters" {
 		s := strings.TrimPrefix(n.Content(src), "(")

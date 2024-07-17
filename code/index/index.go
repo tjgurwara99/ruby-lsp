@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -29,9 +28,6 @@ type Index struct {
 	Root    string
 	Indexed bool
 	Symbols []*Symbol
-	Modules []*ModuleDecl
-	Classes []*ClassDecl
-	Methods []*MethodDecl
 }
 
 func New(path string) *Index {
@@ -75,23 +71,20 @@ func (i *Index) indexFile(tree *sitter.Tree, src []byte, filepath string) error 
 		n := node.Child(j)
 		switch n.Type() {
 		case "module":
-			module, err := i.indexModule(n, src, filepath, "")
+			_, err := i.indexModule(n, src, filepath, "")
 			if err != nil {
 				return err
 			}
-			i.Modules = append(i.Modules, module)
 		case "class":
-			class, err := i.indexClass(n, src, filepath, "")
+			_, err := i.indexClass(n, src, filepath, "")
 			if err != nil {
 				return err
 			}
-			i.Classes = append(i.Classes, class)
 		case "method":
-			method, err := i.indexMethod(n, src, filepath, "")
+			_, err := i.indexMethod(n, src, filepath, "")
 			if err != nil {
 				return err
 			}
-			i.Methods = append(i.Methods, method)
 		}
 	}
 	return nil
@@ -112,9 +105,6 @@ func (i *Index) lookupSymbol(scope string, t string, r *Range) (*Symbol, bool) {
 
 func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scope string) (*ModuleDecl, error) {
 	name := node.NamedChild(0).Content(src)
-	idx := slices.IndexFunc(i.Modules, func(m *ModuleDecl) bool {
-		return m.Name == name
-	})
 	if scope == "" {
 		scope = name
 	} else {
@@ -125,15 +115,7 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scop
 	if !symbolIndexed {
 		i.Symbols = append(i.Symbols, symbol)
 	}
-	var module *ModuleDecl
-	if idx < 0 {
-		module = &ModuleDecl{
-			Name: node.NamedChild(0).Content(src),
-			r:    rr,
-		}
-	} else {
-		module = i.Modules[idx]
-	}
+	var module ModuleDecl
 	var bodyNode *sitter.Node
 	for j := 0; j < int(node.NamedChildCount()); j++ {
 		n := node.NamedChild(j)
@@ -145,7 +127,7 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scop
 		}
 	}
 	if bodyNode == nil {
-		return module, nil
+		return nil, nil
 	}
 	var attributes []*Attribute
 	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
@@ -160,14 +142,12 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scop
 				return nil, err
 			}
 			module.Modules = append(module.Modules, submodule)
-			i.Modules = append(i.Modules, submodule)
 		case "class":
 			class, err := i.indexClass(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
 			module.Classes = append(module.Classes, class)
-			i.Classes = append(i.Classes, class)
 		case "method":
 			method, err := i.indexMethod(n, src, filepath, scope)
 			if err != nil {
@@ -178,11 +158,10 @@ func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scop
 				Type:  "method",
 			})
 			module.Methods = append(module.Methods, method)
-			i.Methods = append(i.Methods, method)
 		}
 	}
 	symbol.Attributes = attributes
-	return module, nil
+	return &module, nil
 }
 
 func rangeFromNode(node *sitter.Node, filepath string) *Range {
@@ -242,14 +221,12 @@ func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string, scope
 				return nil, err
 			}
 			class.Modules = append(class.Modules, submodule)
-			i.Modules = append(i.Modules, submodule)
 		case "class":
 			class, err := i.indexClass(n, src, filepath, scope)
 			if err != nil {
 				return nil, err
 			}
 			class.Classes = append(class.Classes, class)
-			i.Classes = append(i.Classes, class)
 		case "method":
 			method, err := i.indexMethod(n, src, filepath, scope)
 			if err != nil {
@@ -260,7 +237,6 @@ func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string, scope
 				Type:  "method",
 			})
 			class.Methods = append(class.Methods, method)
-			i.Methods = append(i.Methods, method)
 		}
 	}
 	symbol.Attributes = attributes
@@ -296,32 +272,39 @@ func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string, scop
 	return &method, nil
 }
 
-func (i *Index) LookupConstant(name string) ([]*Range, bool) {
+func (i *Index) LookupConstant(name string, nesting []string) ([]*Range, bool) {
 	if !i.Indexed {
 		return nil, false
 	}
 	var res []*Range
-	for _, c := range i.Classes {
-		if c.Name == name {
-			res = append(res, c.r)
-		}
+	// use the nesting[i] + "::" + name to get the search parameter in symbols
+	for i := range nesting {
+		nesting[i] = nesting[i] + "::" + name
 	}
-	for _, m := range i.Modules {
-		if m.Name == name {
-			res = append(res, m.r)
+	for _, sym := range i.Symbols {
+		for _, n := range nesting {
+			if sym.Name == n {
+				res = append(res, sym.r)
+			}
 		}
 	}
 	return res, true
 }
 
-func (i *Index) LookupIdentifier(name string) ([]*Range, bool) {
+func (i *Index) LookupIdentifier(name string, nesting []string) ([]*Range, bool) {
 	if !i.Indexed {
 		return nil, false
 	}
 	var res []*Range
-	for _, m := range i.Methods {
-		if m.Name == name {
-			res = append(res, m.r)
+	// use the nesting[i] +"."+ name to get the search parameter in symbols
+	for i := range nesting {
+		nesting[i] = nesting[i] + "." + name
+	}
+	for _, sym := range i.Symbols {
+		for _, n := range nesting {
+			if sym.Name == n {
+				res = append(res, sym.r)
+			}
 		}
 	}
 	return res, true

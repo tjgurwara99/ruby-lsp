@@ -39,16 +39,15 @@ func (h *Handler) GoToDef(params json.RawMessage) (any, error) {
 		return nil, errors.New("failed")
 	}
 	var ranges []*index.Range
+	nesting := findNesting(doc.content, selected)
 	switch selected.Type() {
 	case "constant":
-		ranges, ok = h.index.LookupConstant(selected.Content(doc.content))
+		ranges, ok = h.index.LookupConstant(selected.Content(doc.content), nesting)
 		if !ok {
 			return nil, errors.New("no ranges found")
 		}
 	case "identifier":
-		h.logger.Println("identifier lookup started")
-		ranges, ok = h.index.LookupIdentifier(selected.Content(doc.content))
-		h.logger.Println("identifier lookup finished")
+		ranges, ok = h.index.LookupIdentifier(selected.Content(doc.content), nesting)
 		if !ok {
 			h.logger.Println("identifier lookup errored")
 			return nil, errors.New("no ranges found")

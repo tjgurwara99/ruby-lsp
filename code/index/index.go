@@ -2,36 +2,22 @@ package index
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/ruby"
+	"github.com/tjgurwara99/go-ruby-prism/parser"
 )
 
-type Attribute struct {
-	Ident string
-	Type  string
-}
-
-type Symbol struct {
-	Name       string
-	Type       string
-	Attributes []*Attribute
-	r          *Range
-}
-
 type Index struct {
-	Root    string
-	Indexed bool
-	Symbols []*Symbol
-	Modules []*ModuleDecl
-	Classes []*ClassDecl
-	Methods []*MethodDecl
+	Root        string
+	Indexed     bool
+	ClassDecls  []ClassDecl
+	ModuleDecls []ModuleDecl
+	MethodDecls []MethodDecl
 }
 
 func New(path string) *Index {
@@ -40,13 +26,16 @@ func New(path string) *Index {
 	}
 }
 
-func (i *Index) Start(logger *log.Logger) {
-	language := ruby.GetLanguage()
-	parser := sitter.NewParser()
-	parser.SetLanguage(language)
+func (i *Index) Start(logger *log.Logger) error {
+	p, err := parser.NewParser(context.Background())
+	if err != nil {
+		return err
+	}
 	logger.Println("started indexing")
-	err := filepath.Walk(i.Root, func(path string, info fs.FileInfo, err error) error {
-		if info.IsDir() && (strings.HasPrefix(info.Name(), ".") || info.Name() == "node_modules" || info.Name() == "npm-workspaces" || info.Name() == "vendor") {
+	err = filepath.Walk(i.Root, func(path string, info fs.FileInfo, err error) error {
+		if info.IsDir() && (strings.HasPrefix(info.Name(), ".") ||
+			info.Name() == "node_modules" || info.Name() == "npm-workspaces" ||
+			info.Name() == "vendor") {
 			return filepath.SkipDir
 		}
 		if err == nil && strings.HasSuffix(info.Name(), ".rb") {
@@ -54,275 +43,185 @@ func (i *Index) Start(logger *log.Logger) {
 			if err != nil {
 				return err
 			}
-			tree, err := parser.ParseCtx(context.Background(), nil, src)
+			result, err := p.Parse(context.Background(), src)
 			if err != nil {
 				return err
 			}
-			i.indexFile(tree, src, path)
+			i.indexProgram(result.Value, path, src)
 		}
 		return nil
 	})
-	i.Indexed = true
 	if err != nil {
 		logger.Fatal("indexing failed")
 	}
 	logger.Println("indexing finished")
+	i.Indexed = true
+	return nil
 }
 
-func (i *Index) indexFile(tree *sitter.Tree, src []byte, filepath string) error {
-	node := tree.RootNode()
-	for j := 0; j < int(node.ChildCount()); j++ {
-		n := node.Child(j)
-		switch n.Type() {
-		case "module":
-			module, err := i.indexModule(n, src, filepath, "")
+func (i *Index) indexProgram(node parser.Node, path string, src []byte) error {
+	if node == nil {
+		return nil
+	}
+	for _, child := range node.Children() {
+		switch n := child.(type) {
+		case *parser.ModuleNode:
+			err := i.indexModule(n, path, src)
 			if err != nil {
 				return err
 			}
-			i.Modules = append(i.Modules, module)
-		case "class":
-			class, err := i.indexClass(n, src, filepath, "")
+		case *parser.ClassNode:
+			err := i.indexClass(n, path, src)
 			if err != nil {
 				return err
 			}
-			i.Classes = append(i.Classes, class)
-		case "method":
-			method, err := i.indexMethod(n, src, filepath, "")
+		case *parser.DefNode:
+			err := i.indexMethod(n, path, src)
 			if err != nil {
 				return err
 			}
-			i.Methods = append(i.Methods, method)
+		case *parser.StatementsNode:
+			err := i.indexProgram(n, path, src)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (i *Index) lookupSymbol(scope string, t string, r *Range) (*Symbol, bool) {
-	for _, sym := range i.Symbols {
-		if sym.Name == scope && sym.Type == t {
-			return sym, true
+func locationFromOffset(src []byte, path string, offset int) (*Location, error) {
+	if offset < 0 || offset >= len(src) {
+		return nil, fmt.Errorf("fileOffset is out of bounds")
+	}
+
+	line := 0
+	lineOffset := 0
+
+	for i := 0; i < offset; i++ {
+		if src[i] == '\n' {
+			line++
+			lineOffset = 0
+		} else {
+			lineOffset++
 		}
 	}
-	return &Symbol{
-		Name: scope,
-		Type: t,
-		r:    r,
-	}, false
+	return &Location{
+		Line:      line,
+		Character: lineOffset,
+		FileURI:   path,
+	}, nil
 }
 
-func (i *Index) indexModule(node *sitter.Node, src []byte, filepath string, scope string) (*ModuleDecl, error) {
-	name := node.NamedChild(0).Content(src)
-	idx := slices.IndexFunc(i.Modules, func(m *ModuleDecl) bool {
-		return m.Name == name
-	})
-	if scope == "" {
-		scope = name
-	} else {
-		scope = scope + "::" + name
+func (i *Index) indexModule(node *parser.ModuleNode, path string, src []byte) error {
+	startLocation, err := locationFromOffset(src, path, int(node.Modulekeywordloc.StartOffset))
+	if err != nil {
+		return err
 	}
-	rr := rangeFromNode(node, filepath)
-	symbol, symbolIndexed := i.lookupSymbol(scope, "module", rr)
-	if !symbolIndexed {
-		i.Symbols = append(i.Symbols, symbol)
+	endLocation, err := locationFromOffset(src, path, int(node.Endkeywordloc.EndOffset()))
+	if err != nil {
+		return err
 	}
-	var module *ModuleDecl
-	if idx < 0 {
-		module = &ModuleDecl{
-			Name: node.NamedChild(0).Content(src),
-			r:    rr,
-		}
-	} else {
-		module = i.Modules[idx]
-	}
-	var bodyNode *sitter.Node
-	for j := 0; j < int(node.NamedChildCount()); j++ {
-		n := node.NamedChild(j)
-		if node == n {
-			continue
-		}
-		if n.Type() == "body_statement" {
-			bodyNode = n
-		}
-	}
-	if bodyNode == nil {
-		return module, nil
-	}
-	var attributes []*Attribute
-	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
-		n := bodyNode.NamedChild(j)
-		if n == bodyNode {
-			continue
-		}
-		switch n.Type() {
-		case "module":
-			submodule, err := i.indexModule(n, src, filepath, scope)
-			if err != nil {
-				return nil, err
-			}
-			module.Modules = append(module.Modules, submodule)
-			i.Modules = append(i.Modules, submodule)
-		case "class":
-			class, err := i.indexClass(n, src, filepath, scope)
-			if err != nil {
-				return nil, err
-			}
-			module.Classes = append(module.Classes, class)
-			i.Classes = append(i.Classes, class)
-		case "method":
-			method, err := i.indexMethod(n, src, filepath, scope)
-			if err != nil {
-				return nil, err
-			}
-			attributes = append(attributes, &Attribute{
-				Ident: method.Name,
-				Type:  "method",
-			})
-			module.Methods = append(module.Methods, method)
-			i.Methods = append(i.Methods, method)
-		}
-	}
-	symbol.Attributes = attributes
-	return module, nil
-}
-
-func rangeFromNode(node *sitter.Node, filepath string) *Range {
-	return &Range{
-		Start: &Location{
-			Line:      int(node.StartPoint().Row),
-			Character: int(node.StartPoint().Column),
-			FileURI:   filepath,
-		},
-		End: &Location{
-			Line:      int(node.EndPoint().Row),
-			Character: int(node.EndPoint().Column),
-			FileURI:   filepath,
+	module := ModuleDecl{
+		Name: node.Name,
+		r: &Range{
+			Start: startLocation,
+			End:   endLocation,
 		},
 	}
+	i.ModuleDecls = append(i.ModuleDecls, module)
+	return i.indexProgram(node.Body, path, src)
 }
 
-func (i *Index) indexClass(node *sitter.Node, src []byte, filepath string, scope string) (*ClassDecl, error) {
-	name := node.NamedChild(0).Content(src)
-	rr := rangeFromNode(node, filepath)
-	class := ClassDecl{
-		Name: name,
-		r:    rr,
+func (i *Index) indexClass(node *parser.ClassNode, path string, src []byte) error {
+	startLoc, err := locationFromOffset(src, path, int(node.Classkeywordloc.StartOffset))
+	if err != nil {
+		return err
 	}
-	if scope == "" {
-		scope = name
-	} else {
-		scope = scope + "::" + name
+	endLoc, err := locationFromOffset(src, path, int(node.Endkeywordloc.EndOffset()))
+	if err != nil {
+		return err
 	}
-	symbol, symbolIndexed := i.lookupSymbol(scope, "module", rr)
-	if !symbolIndexed {
-		i.Symbols = append(i.Symbols, symbol)
+	cls := ClassDecl{
+		Name: node.Name,
+		r: &Range{
+			Start: startLoc,
+			End:   endLoc,
+		},
 	}
-	var bodyNode *sitter.Node
-	for j := 0; j < int(node.NamedChildCount()); j++ {
-		n := node.NamedChild(j)
-		if node == n {
-			continue
-		}
-		if n.Type() == "body_statement" {
-			bodyNode = n
-		}
-	}
-	if bodyNode == nil {
-		return &class, nil
-	}
-	var attributes []*Attribute
-	for j := 0; j < int(bodyNode.NamedChildCount()); j++ {
-		n := bodyNode.NamedChild(j)
-		if n == bodyNode {
-			continue
-		}
-		switch n.Type() {
-		case "module":
-			submodule, err := i.indexModule(n, src, filepath, scope)
-			if err != nil {
-				return nil, err
-			}
-			class.Modules = append(class.Modules, submodule)
-			i.Modules = append(i.Modules, submodule)
-		case "class":
-			class, err := i.indexClass(n, src, filepath, scope)
-			if err != nil {
-				return nil, err
-			}
-			class.Classes = append(class.Classes, class)
-			i.Classes = append(i.Classes, class)
-		case "method":
-			method, err := i.indexMethod(n, src, filepath, scope)
-			if err != nil {
-				return nil, err
-			}
-			attributes = append(attributes, &Attribute{
-				Ident: method.Name,
-				Type:  "method",
-			})
-			class.Methods = append(class.Methods, method)
-			i.Methods = append(i.Methods, method)
-		}
-	}
-	symbol.Attributes = attributes
-	return &class, nil
+	i.ClassDecls = append(i.ClassDecls, cls)
+	return i.indexProgram(node.Body, path, src)
 }
 
-func (i *Index) indexMethod(node *sitter.Node, src []byte, filepath string, scope string) (*MethodDecl, error) {
-	// var m Method
-	name := node.NamedChild(0).Content(src)
-	rr := rangeFromNode(node, filepath)
-	// there is a possiblity that these are not args but the first statement of the method
-	n := node.NamedChild(1)
-	if scope == "" {
-		scope = name
-	} else {
-		scope = scope + "." + name
+func (i *Index) indexMethod(node *parser.DefNode, path string, src []byte) error {
+	startLoc, err := locationFromOffset(src, path, int(node.Defkeywordloc.StartOffset))
+	if err != nil {
+		return err
 	}
-	symbol, symbolIndexed := i.lookupSymbol(scope, "method", rr)
-	if !symbolIndexed {
-		i.Symbols = append(i.Symbols, symbol)
-	}
-	var args []string
-	if n != nil && n.Type() == "method_parameters" {
-		s := strings.TrimPrefix(n.Content(src), "(")
-		s = strings.TrimSuffix(s, ")")
-		args = strings.Split(s, ",")
+	endLoc := startLoc
+	if node.Endkeywordloc != nil {
+		endLoc, err = locationFromOffset(src, path, int(node.Endkeywordloc.EndOffset()))
+		if err != nil {
+			return err
+		}
 	}
 	method := MethodDecl{
-		Name: name,
-		r:    rangeFromNode(node, filepath),
-		Args: args,
+		Name: node.Name,
+		r: &Range{
+			Start: startLoc,
+			End:   endLoc,
+		},
 	}
-	return &method, nil
+	i.MethodDecls = append(i.MethodDecls, method)
+	return nil
 }
 
-func (i *Index) LookupConstant(name string) ([]*Range, bool) {
+func (i *Index) LookupConstant(constant string) ([]*Range, bool) {
 	if !i.Indexed {
 		return nil, false
 	}
+	classRanges := mapp(filter(i.ClassDecls, func(c ClassDecl) bool {
+		return c.Name == constant
+	}), func(c ClassDecl) *Range {
+		return c.Range()
+	})
+	moduleRanges := mapp(filter(i.ModuleDecls, func(c ModuleDecl) bool {
+		return c.Name == constant
+	}), func(c ModuleDecl) *Range {
+		return c.Range()
+	})
 	var res []*Range
-	for _, c := range i.Classes {
-		if c.Name == name {
-			res = append(res, c.r)
-		}
-	}
-	for _, m := range i.Modules {
-		if m.Name == name {
-			res = append(res, m.r)
-		}
-	}
-	return res, true
+	res = append(res, moduleRanges...)
+	res = append(res, classRanges...)
+	return res, len(res) > 0
 }
 
-func (i *Index) LookupIdentifier(name string) ([]*Range, bool) {
+func (i *Index) LookupIdentifier(ident string) ([]*Range, bool) {
 	if !i.Indexed {
 		return nil, false
 	}
-	var res []*Range
-	for _, m := range i.Methods {
-		if m.Name == name {
-			res = append(res, m.r)
+	ranges := mapp(filter(i.MethodDecls, func(c MethodDecl) bool {
+		return c.Name == ident
+	}), func(c MethodDecl) *Range {
+		return c.Range()
+	})
+	return ranges, len(ranges) > 0
+}
+
+func filter[S ~[]E, E any](s S, f func(E) bool) S {
+	var res S
+	for _, v := range s {
+		if f(v) {
+			res = append(res, v)
 		}
 	}
-	return res, true
+	return res
+}
+
+func mapp[S ~[]E, E any, R any](s S, f func(E) R) []R {
+	var res []R
+	for _, v := range s {
+		res = append(res, f(v))
+	}
+	return res
 }

@@ -10,14 +10,14 @@ type Message interface {
 }
 
 type Request struct {
-	Version string           `json:"jsonrpc"`
+	JSONRPC string           `json:"jsonrpc"`
 	ID      *json.RawMessage `json:"id"`
 	Method  string           `json:"method"`
 	Params  json.RawMessage  `json:"params"`
 }
 
 func (m *Request) IsJSONRPC() bool {
-	return m.Version == "2.0"
+	return m.JSONRPC == "2.0"
 }
 
 func (m *Request) IsNotification() bool {
@@ -30,24 +30,24 @@ var (
 )
 
 type Response struct {
-	Version string           `json:"jsonrpc"`
+	JSONRPC string           `json:"jsonrpc"`
 	ID      *json.RawMessage `json:"id,omitempty"`
 	Result  any              `json:"result,omitempty"`
 	Error   *Error           `json:"error,omitempty"`
 }
 
 func (r *Response) IsJSONRPC() bool {
-	return r.Version == "2.0"
+	return r.JSONRPC == "2.0"
 }
 
 type Notification struct {
 	Method  string `json:"method"`
 	Params  any    `json:"params"`
-	Version string `json:"jsonrpc"`
+	JSONRPC string `json:"jsonrpc"`
 }
 
 func (n *Notification) IsJSONRPC() bool {
-	return n.Version == "2.0"
+	return n.JSONRPC == "2.0"
 }
 
 type Error struct {
@@ -62,4 +62,4 @@ func (e *Error) Error() string {
 
 type NotificationHandler func(params json.RawMessage) error
 
-type MethodHandler func(params json.RawMessage) (result any, err error)
+type RequestHandler func(params json.RawMessage) (result any, err error)

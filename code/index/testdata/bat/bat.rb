@@ -8,7 +8,8 @@ class Foo::Bat
     @value = value
   end
 
-  def data
-    @value
+  def data(value)
+    data = value
+    data
   end
 end

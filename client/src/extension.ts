@@ -3,8 +3,7 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 
-import * as path from "path";
-import { workspace, ExtensionContext } from "vscode";
+import { ExtensionContext, window } from "vscode";
 
 import {
   LanguageClient,
@@ -28,16 +27,19 @@ export function activate(context: ExtensionContext) {
     },
   };
 
+  const serverChannel = window.createOutputChannel("Ruby LSPinternal (server)");
+
   // Options to control the language client
   const clientOptions: LanguageClientOptions = {
     // Register the server for plain text documents
     documentSelector: [{ scheme: "file", language: "ruby" }],
+    outputChannel: serverChannel,
   };
 
   // Create the language client and start the client.
   client = new LanguageClient(
-    "languageServerExample",
-    "Language Server Example",
+    "Ruby LSP internal (Client)",
+    "Ruby Language Server Internal",
     serverOptions,
     clientOptions
   );

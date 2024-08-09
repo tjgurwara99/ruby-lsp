@@ -36,7 +36,7 @@ type Mux struct {
 	reader               *bufio.Reader
 	writer               *bufio.Writer
 	notificationHandlers map[string]NotificationHandler
-	methodHandlers       map[string]MethodHandler
+	methodHandlers       map[string]RequestHandler
 	writeLock            *sync.Mutex
 	logger               *log.Logger
 }
@@ -47,14 +47,14 @@ func NewMux(r io.Reader, w io.Writer, l *log.Logger) *Mux {
 	return &Mux{
 		reader:               reader,
 		writer:               writer,
-		methodHandlers:       make(map[string]MethodHandler),
+		methodHandlers:       make(map[string]RequestHandler),
 		notificationHandlers: make(map[string]NotificationHandler),
 		logger:               l,
 		writeLock:            &sync.Mutex{},
 	}
 }
 
-func (m *Mux) HandleMethod(name string, handler MethodHandler) {
+func (m *Mux) HandleMethod(name string, handler RequestHandler) {
 	m.methodHandlers[name] = handler
 }
 
@@ -85,7 +85,7 @@ func (m *Mux) write(msg Message) error {
 
 func (m *Mux) Notify(method string, params any) error {
 	n := Notification{
-		Version: "2.0",
+		JSONRPC: "2.0",
 		Method:  method,
 		Params:  params,
 	}
@@ -98,7 +98,7 @@ func (m *Mux) Process() error {
 		m.logger.Println(err)
 		return err
 	}
-	func() {
+	go func() {
 		if req.IsNotification() {
 			if nh, ok := m.notificationHandlers[req.Method]; ok {
 				nErr := nh(req.Params)
@@ -135,7 +135,7 @@ func (m *Mux) Process() error {
 
 func NewResponse(id *json.RawMessage, result any) Message {
 	return &Response{
-		Version: "2.0",
+		JSONRPC: "2.0",
 		ID:      id,
 		Result:  result,
 	}
@@ -143,7 +143,7 @@ func NewResponse(id *json.RawMessage, result any) Message {
 
 func NewResponseError(id *json.RawMessage, code ErrorCode, err error) Message {
 	return &Response{
-		Version: "2.0",
+		JSONRPC: "2.0",
 		Error: &Error{
 			Code:    code,
 			Message: err.Error(),

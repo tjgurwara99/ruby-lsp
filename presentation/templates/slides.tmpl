@@ -1,0 +1,97 @@
+{/* This is the slide template. It defines how presentations are formatted. */}
+
+{{define "root"}}
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{.Title}}</title>
+    <meta charset='utf-8'>
+    <script>
+      var notesEnabled = {{.NotesEnabled}};
+    </script>
+    <script src='/static/slides.js'></script>
+
+    {{if .NotesEnabled}}
+    <script>
+      var sections = {{.Sections}};
+      var titleNotes = {{.TitleNotes}}
+    </script>
+    <script src='/static/notes.js'></script>
+    {{end}}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/themes/prism-okaidia.min.css" integrity="sha512-5HvW0a7ihK3ro2KhwEksDHXgIezsTeZybZDIn8d8Y015Ny+t7QWSIjnlCTjFzlK7Klb604HLGjsNqU/i5mJLjQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/components/prism-typescript.min.js" integrity="sha512-Hb168WC7SiCJ1GlGPHBb5ol0ResC6n5wu+5V8FTT5inC5ajLgBSm2hpQBvDq1YG2KqXr7UanlfQqRy6VEb1/kQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/components/prism-go.min.js" integrity="sha512-19J5mMl3tkNptyMFkeBLHmdNi6f6l7quYk69/kiTgk4UNmxRCkdVCMkqPvoAQ7CE6fZQzz7Hp8VECXDpi7g5mw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  </head>
+
+  <body style='display: none'>
+
+    <section class='slides layout-widescreen'>
+
+      <article>
+        <h1>{{.Title}}</h1>
+        {{with .Subtitle}}<h3>{{.}}</h3>{{end}}
+        {{if not .Time.IsZero}}<h3>{{.Time.Format "2 January 2006"}}</h3>{{end}}
+        {{range .Authors}}
+          <div class="presenter">
+            {{range .TextElem}}{{elem $.Template .}}{{end}}
+          </div>
+        {{end}}
+      </article>
+
+  {{range $i, $s := .Sections}}
+  <!-- start of slide {{$s.Number}} -->
+      {{if $s.Elem}}
+      <article>
+        <h3>{{$s.Title}}</h3>
+        {{range $s.Elem}}{{elem $.Template .}}{{end}}
+        <img class="github-logo" src="/static/github-mark-white.png"/>
+      </article>
+      {{else}}
+      <article {{$s.HTMLAttributes}}>
+        <h2>{{$s.Title}}</h2>
+        <img class="github-logo" src="/static/github-mark-white.png"/>
+      </article>
+      {{end}}
+
+  <!-- end of slide {{$s.Number}} -->
+  {{end}}{{/* of Slide block */}}
+
+      <article>
+        <h3>Thank you</h3>
+        {{range .Authors}}
+          <div class="presenter">
+            {{range .Elem}}{{elem $.Template .}}{{end}}
+          </div>
+        {{end}}
+      </article>
+
+    </section>
+
+    <div id="help">
+      Use the left and right arrow keys or click the left and right
+      edges of the page to navigate between slides.<br>
+      (Press 'H' or navigate to hide this message.)
+    </div>
+
+    {{if .PlayEnabled}}
+    <script src='/play.js'></script>
+    {{end}}
+
+    <script>
+      (function() {
+        // Load Google Analytics tracking code on production site only.
+        if (window["location"] && window["location"]["hostname"] == "talks.golang.org") {
+          var ga = document.createElement("script"); ga.type = "text/javascript"; ga.async = true;
+          ga.src = ("https:" == document.location.protocol ? "https://ssl" : "http://www") + ".google-analytics.com/ga.js";
+          var s = document.getElementsByTagName("script")[0]; s.parentNode.insertBefore(ga, s);
+        }
+      })();
+    </script>
+  </body>
+</html>
+{{end}}
+
+{{define "newline"}}
+<br>
+{{end}}

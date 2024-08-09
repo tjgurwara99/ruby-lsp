@@ -12,6 +12,12 @@ github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSS
 github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.7.4 h1:wZRexSlwd7ZXfKINDLsO4r7WBt3gTKONc6K/VesHvHM=
 github.com/stretchr/testify v1.7.4/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
+github.com/tetratelabs/wazero v1.6.0 h1:z0H1iikCdP8t+q341xqepY4EWvHEw8Es7tlqiVzlP3g=
+github.com/tetratelabs/wazero v1.6.0/go.mod h1:0U0G41+ochRKoPKCJlh0jMg1CHkyfK8kDqiirMmKY8A=
+github.com/tjgurwara99/go-ruby-prism v0.0.0-20240723155658-73ea4fcee3c2 h1:+XKUqGSqiJYet92kSRKxkrQqwwY/5ODsV1Fsh+FbPoM=
+github.com/tjgurwara99/go-ruby-prism v0.0.0-20240723155658-73ea4fcee3c2/go.mod h1:K0HRi8NNXJedZTdO0Gc5v/IEM8HTVCDYT2cv8wHimHM=
+github.com/tjgurwara99/go-ruby-prism v0.0.0-20240723164524-bc9b52afbbc5 h1:rTssCx4weRKR5rkto6pBL6v8puUnzC4iOyhYmbS4B4M=
+github.com/tjgurwara99/go-ruby-prism v0.0.0-20240723164524-bc9b52afbbc5/go.mod h1:K0HRi8NNXJedZTdO0Gc5v/IEM8HTVCDYT2cv8wHimHM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=

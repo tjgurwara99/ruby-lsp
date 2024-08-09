@@ -1,0 +1,452 @@
+# Ruby LSP
+
+A quest to make my life a bit easier off the internet
+9 Aug 2024
+Tags: lsp, ruby, tools
+Summary: This presentation is to help people understand LSPs are great and maybe its time to invest into them to make monolith development easier.
+
+Taj Singh
+Software Engineer, GitHub
+tjgurwara99@github.com
+
+
+## What is an LSP?
+
+## What is an LSP?
+
+LSP stands for Language Server Protocol.
+
+It's a protocol specification defined for language tools and editors/IDEs
+to communicate with each other.
+
+The easiest way I think of them as *bidirectional* **Pneumatic tubes** often seen in cartoons.
+
+.image pneumatic-mail.jpg _ 250
+<figcaption>By Esther Bubley under public domain license </figcaption>
+
+## Some examples include...
+
+## Some examples include...
+
+- gopls for Go
+- pylance for Python
+- pyright for Python (open source parts of pylance)
+- **sorbet for Ruby**
+- **Ruby-LSP for Ruby**
+
+Notice that there is a _Ruby LSP_. So why are we creating another one?
+
+.image code-complete.png _ 680
+
+## Why a new LSP for Ruby?
+
+## Why a new LSP for Ruby?
+
+The following are the examples of current Ruby LSP projects:
+
+1. `shopify/ruby-lsp`
+2. `sorbet/sorbet`
+
+<figcaption> Both of these are actually very good. Specially if you're **not** working on `github/github` on a Mac 😅 </figcaption>
+
+.image this-is-fine.jpg 300 _
+<figcaption> <i>On Fire</i> by KC Green </figcaption>
+
+: you can probably guess where I'm going with this...
+: The main reason I wanted to make something that worked for me was to use my local machine for development.
+: When developing for `github/github`, private gems + gems not suitable for MacOS environment cannot be installed with bundle.
+: ruby-lsp error: Building native extensions. This could take a while...
+
+## Why a new LSP for Ruby?
+
+.image sorbet-errors.png _ 990
+<figcaption> Errors running sorbet extension on MacOS </figcaption>
+
+## Why a new LSP for Ruby?
+
+.image ruby-lsp-errors.png _ 990
+<figcaption> Errors from Ruby-LSP by Shopify on MacOS </figcaption>
+
+: `Building native extensions. This could take a while...`
+: It seems to be a clang vs gcc failure but I haven't looked at it because
+: I don't want to install gcc on this machine because it comes with its own caveats.
+
+## Why a new LSP for Ruby?
+
+A good IDE support for Languages is not only useful but improves productivity!
+
+.image refusal-to-work.png _ 940
+<figcaption> VSCode shows every word in autocomplete but is that useful? </figcaption>
+
+: this is ruby-lsp + sorbet
+
+## Why a new LSP for Ruby?
+
+Python LSP pylance installed but the project envrionment is missing its dependencies...
+
+.image dependency-not-installed.png _ 940
+<figcaption> <code>pygame</code> dependency is not installed </figcaption>
+
+## Why a new LSP for Ruby?
+
+And yet, it still works for most of the project. It just doesn't
+work on the dependencies related to pygame...
+
+.image yet-it-works-basically.png _ 830
+<figcaption> Auto-complete still works! </figcaption>
+
+: not just autocomplete, but also jump to def etc work beautifully.
+
+## Why a new LSP for Ruby?
+
+A similar story can be shown for other LSPs but I used python
+specifically because of its dynamic nature and showing people
+that its not impossible to do something like this for Ruby!
+
+: I'm not that familiar with Ruby ecosystem but it's sad that there is very little motivation for improvements too.
+: Probably because the ruby on rails people usually value convention. But these conventions are usually unfamiliar
+: The usual responses that I get are - use codespaces is the default answer.
+
+## How did I go about creating a PoC?
+
+## How did I go about creating a PoC?
+
+<h4> Well, I needed an AST somehow. My requirements: </h4>
+
+1. It must be in Go!
+2. It should store useful information once parsed
+3. It needed to have predictive parsing.
+
+: Go because I'm biased but also because the cross compilation is excellent so no issue with the os being MacOS or Linux etc.
+: Another good reason is ESBuild - I don't know how many people follow JS ecosystem, but its one of the most widely maintained and still relevant bundler.
+
+## How did I go about creating a PoC?
+
+<h4> The problem solved? </h4>
+
+ - Used Tree-Sitter for simple usecase!
+ - Considered creating one myself because no ready made solution was available.
+ - Watched a few Ruby conf videos on how people are trying to solve this problem.
+ - Finally came across the ruby Prism project! But its in C! (and Wasm)
+
+
+: caveats for tree-sitter were that its build with many languages in mind so there were some design choices made that were not ideal for the kind of thing that I wanted to do.
+: Creating one myself - doable but I'm lazy! Prism is written in C but fortunately they also support wasm compilation. I thought to use the CGo to actually do the prism bindings but ran into the same exact bug when I was trying to install ruby-lsp
+
+## Implementation
+
+## Implementation
+
+<h4> Inspiration </h4>
+
+The `net/http` package! Concepts such as:
+
+ - `handlers`
+ - `multiplexers`
+
+are used in a similar way in the current implementation.
+
+## Side Note
+
+A lot of the non-ruby specific machinary is quite common and people such as Adrian Hasketh
+(creator of `templ` templating language) have given talks related to LSP, all of which are worth a watch!
+
+<div class="image">
+
+.iframe https://www.youtube.com/embed/EkK8Jxjj95s 400 600
+
+</div>
+
+<figcaption> Gophercon UK talk by Adrian Hasketh on LSPs </figcaption>
+
+## Implementation
+
+<h4> Request Message </h4>
+
+The following shows the typescript interface requirement taken from the language server protocol specification.
+
+```typescript
+interface RequestMessage extends Message {
+	id: integer | string;
+	method: string;
+	params?: array | object;
+}
+```
+where `Message` is defined as:
+
+```typescript
+interface Message {
+	jsonrpc: string;
+}
+```
+
+## Implementation
+
+<h4> We can define <code>Request</code> in Go like the following </h4>
+
+.code ../rpc/types.go /^type Request/,/^}/
+
+Things to notice:
+
+1. `ID` field is a `*json.RawMessage`,
+2. `Params` field is also `*json.RawMessage`.
+
+## Implementation
+
+<h4> Similarly in the specification, a <code>Notification</code> interface is defined as follows: </h4>
+
+```typescript
+interface NotificationMessage extends Message {
+	method: string;
+	params?: array | object;
+}
+```
+where `Message` is defined as:
+
+```typescript
+interface Message {
+	jsonrpc: string;
+}
+```
+<figcaption> Note that there is no <code>id</code> field on this message. </figcaption>
+
+## Implementation
+
+<h4> My Go implementation of <code>Notification</code> looks like the following: </h4>
+
+.code ../rpc/types.go /^type Notification/,/^}/
+
+## Implementation
+
+<h4> <code> RequestHandler </code> </h4>
+
+.code ../rpc/types.go /^type RequestHandler/,/$/
+
+<h4> <code> NotificationHandler </code> </h4>
+
+.code ../rpc/types.go /^type NotificationHandler/,/$/
+
+## Package RPC
+
+## Package RPC
+
+The multiplexer looks like this:
+
+.code ../rpc/rpc.go /^type Mux/,/^}/
+
+## Package RPC
+
+RequestHandler type
+
+.code ../rpc/types.go /^type RequestHandler/,/$/
+
+NotificationHandler type
+
+.code ../rpc/types.go /^type NotificationHandler/,/$/
+
+## Package RPC
+
+Helpers
+
+.code ../rpc/rpc.go /^func.*HandleMethod/,/^}/
+
+And
+
+.code ../rpc/rpc.go /^func.*HandleNotification/,/^}/
+
+Are very similar to `HandleFunc` from the `net/http` package.
+
+## Package RPC
+
+The crux of the whole `RPC` package!
+
+```go
+func (m *Mux) Process() error {
+	// read from the transport (stdin, tcp etc)
+	...
+	go func() {
+		// check if the incoming message is either a request or notification then process it
+		// This idea is similar to how the http/net works by
+		// listening for new connections, then processes them in a separate goroutine.
+		...
+	}()
+	return nil
+}
+```
+
+## Package RPC
+
+Read then spawn a goroutine to process the message
+
+.code ../rpc/rpc.go /^func.*Process/,/		mh,/
+
+## Package RPC
+
+.code ../rpc/rpc.go /		mh,/,/		wErr \:= m.write\(NewResponse\(req.ID\, result\)\)/
+
+## Package RPC
+
+.code ../rpc/rpc.go /		wErr \:= m.write\(NewResponse\(req.ID\, result\)\)/,/^}/
+
+## Package RPC
+
+How is this being called?
+
+.code ../main.go /^	for {/,/^	}/
+
+## Package Index
+
+Stores the information that we use to find things like go to definition
+
+.code ../code/index/index.go /^type Index/,/^}/
+
+## Package Index
+
+The `ModuleDecl` struct looks like this:
+
+.code ../code/index/codebase.go /^type ModuleDecl/,/^}/
+
+## Package Index
+
+The `ClassDecl` struct looks like this:
+
+.code ../code/index/codebase.go /^type ClassDecl/,/^}/
+
+## Package Index
+
+The `MethodDecl` struct looks like this:
+
+.code ../code/index/codebase.go /^type MethodDecl/,/^}/
+
+## Package Index
+
+The main part of the index package: the `Start` method
+
+.code ../code/index/index.go /^func.*Start/,/logger\.Println\(\"started indexing\"\)/
+
+: We create the parser instance.
+: the parser is from the prism project
+: The package that I forked was using wasm runtime so I didn't have to rely on CGo
+
+## Package Index
+
+.code ../code/index/index.go /filepath\.Walk/,/}\)/
+
+: Recursively walk the root path and reading all the ruby files
+: Then parsing the file and indexing them to the relevant type.
+
+## Package Index
+
+.code ../code/index/index.go /}\)/,/^}/
+
+The field `Indexed` is flipped to `true` once the whole of the project has been walked.
+
+## Package Index
+
+Method `indexProgram` converts the AST representation and fills the information into the index fields.
+
+.code ../code/index/index.go /^func.*indexProgram/,/for/
+
+## Package Index
+
+The loop contains simple switch cases to index `Module`s, `Class`es and `Method`s
+
+.code ../code/index/index.go /switch/,/$/
+
+Case handling Modules
+
+.code ../code/index/index.go /case \*parser\.ModuleNode/,/}/
+
+## Package Index
+
+.code ../code/index/index.go /^func.*indexModule/,/^}/
+
+## Package Index
+
+Case handling Classes
+
+.code ../code/index/index.go /case \*parser\.ClassNode/,/}/
+
+## Package Index
+
+.code ../code/index/index.go /^func.*indexClass/,/^}/
+
+## Package Index
+
+Case handling methods and functions
+
+.code ../code/index/index.go /case \*parser\.DefNode/,/}/
+
+## Package Index
+
+.code ../code/index/index.go /^func.*indexMethod/,/^}/
+
+## Package Index
+
+The final case handles the edge case, involving the way prism handles multiple top level statements
+
+.code ../code/index/index.go /case \*parser\.StatementsNode/,/}/
+
+## Package Index
+
+Benchmarks! Cause why not!!
+
+.code ../code/index/index_test.go /^func TestIndex/,/^}/
+
+Running the tests for 5 times finishes in `159.145s`
+
+```sh
+> go test -count=5 -run ^TestIndex github.com/tjgurwara99/ruby-lsp/code/index
+ok      github.com/tjgurwara99/ruby-lsp/code/index      159.145s
+```
+
+.caption An average of 31.83s for the whole of `github/github`. Not bad!
+
+## Making of Go To Definition
+
+## Making of Go To Definition
+
+Well we use treesitter here (because I had started with that and I have yet to completely finish removing treesitter.)
+
+When the request comes in, we receive:
+
+.code ../handlers/goto.go /^type DefinitionParams/,/^}/
+
+## Making of Go To Definition
+
+Given the position, we find what the use pointed to from the position field:
+
+.code ../handlers/goto.go /^func.*GoToDef/,/selected/
+
+## Making of Go To Definition
+
+.code ../handlers/goto.go /^	selected/,/^	switch/
+
+## Making of Go To Definition
+
+.code ../handlers/goto.go /^	switch/,/return Map/
+
+## Making of Go To Definition
+
+Finally we return the type that the LSP client expects, which is a slice of locations.
+
+.code ../handlers/goto.go /return Map/,/^}/
+
+## Registering the handlers
+
+## Registering the handlers
+
+.code ../main.go /^func main/,/^}/
+
+## Demo!
+
+## Future?
+
+I don't know yet! I just wanted to not be forced to use codespaces when I have a decently powerful machine - especially
+if they are going to host it on a cheap hardware with horrible latency where even grepping takes ages.
+
+I was thinking of implementing a type inference system with Hindley–Milner algorithm. This would suit ruby much
+more than anything that Sorbet project is currently doing (IMO)
+
+It's a formally proven type checking algorithm. Languages like OCaml use this and this
+is one of the best inference systems out there (that I know of).

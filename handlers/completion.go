@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	lsp "github.com/sourcegraph/go-lsp"
@@ -15,8 +16,26 @@ func (h *Handler) TextCompletion(params json.RawMessage) (any, error) {
 	}
 	var result []lsp.CompletionItem
 	for _, doc := range h.files {
+		// if filename == string(paramsData.TextDocument.URI) {
+		point := sitter.Point{
+			Row:    uint32(paramsData.Position.Line),
+			Column: uint32(paramsData.Position.Character),
+		}
+		selected := doc.tree.RootNode().NamedDescendantForPointRange(point, point)
+		if selected == nil {
+			return nil, errors.New("failed")
+		}
+		switch selected.Type() {
+		case "constant":
+			constant := selected.Content(doc.content)
+			h.logger.Printf("constant: %s\n", constant)
+		case "identifier":
+			ident := selected.Content(doc.content)
+			h.logger.Printf("ident: %s\n", ident)
+		default:
+			h.logger.Printf("unknown node type %s\n", selected.Type())
+		}
 		tree := doc.tree
-		h.logger.Println("POSITION", paramsData.Position)
 		allIdents, err := sitter.NewQuery([]byte(allIdentsQuery), h.language)
 		if err != nil {
 			return nil, err

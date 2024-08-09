@@ -8,17 +8,12 @@ const (
 	NodeMethod
 )
 
-type Node interface {
-	Type() NodeType
-	Range() *Range
-}
-
 type ModuleDecl struct {
-	Name    string
-	r       *Range
-	Classes []*ClassDecl
-	Modules []*ModuleDecl
-	Methods []*MethodDecl
+	Name        string
+	r           *Range
+	ClassDecls  []*ClassDecl
+	ModuleDecls []*ModuleDecl
+	MethodDecls []*MethodDecl
 }
 
 // Range implements Node.
@@ -43,11 +38,11 @@ type Range struct {
 }
 
 type ClassDecl struct {
-	Name    string
-	r       *Range
-	Methods []*MethodDecl
-	Classes []*ClassDecl
-	Modules []*ModuleDecl
+	Name        string
+	r           *Range
+	MethodDecls []*MethodDecl
+	ClassDecls  []*ClassDecl
+	ModuleDecls []*ModuleDecl
 }
 
 // Range implements Node.

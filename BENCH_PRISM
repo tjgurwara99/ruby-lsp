@@ -1,0 +1,5 @@
+pkg: github.com/tjgurwara99/ruby-lsp/code/index
+BenchmarkParsing-10    	   47138	     25543 ns/op	    3528 B/op	     138 allocs/op
+
+pkg: github.com/tjgurwara99/ruby-lsp/code/index
+BenchmarkTreeSitterParser-10    	   50124	     25022 ns/op	     184 B/op	       4 allocs/op
